@@ -5,7 +5,7 @@
 #include <PubSubClient.h>
 #include <WiFi.h>
 #include "../network/wifi_manager.h"
-#include <esp_mac.h>
+#include "../util/device.h"
 
 // ==================== 状态定义 ====================
 // 不设置连接中状态，因为PubSubClient 的 connect() 会一直阻塞到成功或超时，所以 CONNECTING 只存在于一次 update() 调用内部
@@ -29,8 +29,8 @@ static uint32_t backoff_time = mqtt_cfg::RECONNECT_BACKOFF_INIT_MS;
 // 重试需要等待的时间
 static uint32_t retry_wait_time = 0;
 
-// 网关 ID，由芯片 MAC 生成，如 "esp32-a1b2c3d4e5f6"（18 个字符加结尾符）。同时用作 MQTT 的 clientId。
-static char gateway_id[24];
+// 网关 ID从 device 获取。
+static const char* gateway_id;
 // 完整 topic，init() 里用 mqtt_cfg 的格式串拼一次，之后一直用。
 static char topic_gw_status[mqtt_cfg::TOPIC_MAX_LEN];
 static char topic_gw_data[mqtt_cfg::TOPIC_MAX_LEN];
@@ -133,18 +133,7 @@ void mqtt_manager_init(void)
     // 用 &= 而不是 &&，这样每一项都会检查并打印，不会因为前面失败就漏掉后面的。
     bool ok = true;
 
-    // 先生成 gateway_id，再拼 topic 和 status 消息，最后设置 MQTT Client。
-    // 1. 获取 MAC 地址
-    uint8_t mac[6];
-    esp_read_mac(mac, ESP_MAC_WIFI_STA);
-    // 2. 生成 Gateway ID
-    ok &= format_ok(snprintf(
-        gateway_id,
-        sizeof(gateway_id),
-        "esp32-%02x%02x%02x%02x%02x%02x",
-        mac[0], mac[1], mac[2],
-        mac[3], mac[4], mac[5]),
-        sizeof(gateway_id), "gateway_id");
+    gateway_id = device_gateway_id();
 
     // 3. 生成 Topic
     ok &= format_ok(snprintf(

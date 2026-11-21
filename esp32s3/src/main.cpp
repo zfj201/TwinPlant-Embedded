@@ -3,10 +3,11 @@
 #include "network/wifi_manager.h"
 #include "mqtt/mqtt_manager.h"
 #include "config/mqtt_config.h"
+#include "util/log.h"
+#include "util/device.h"
 
 uint32_t last_print_time = 0;
 static uint32_t last_publish_time = 0;
-static uint32_t sequence = 0;
 
 static void publish_gateway_data(void)
 {
@@ -19,7 +20,7 @@ static void publish_gateway_data(void)
         (unsigned)mqtt_cfg::PROTOCOL_VERSION,
         mqtt_get_gateway_id(),
         (unsigned long)millis(),
-        (unsigned long)(++sequence),
+        (unsigned long)(device_next_sequence()),
         (unsigned long)(millis() / 1000),
         (unsigned long)ESP.getFreeHeap());
 
@@ -56,6 +57,8 @@ void loop() {
       millis() - last_publish_time >= mqtt_cfg::PUBLISH_INTERVAL_MS) {
       last_publish_time = millis();
       publish_gateway_data();
+      LOG_I("main", "boot, heap=%u", (unsigned)ESP.getFreeHeap());
+      LOG_W("wifi", "boot, heap=%u", (unsigned)ESP.getFreeHeap());
   }
 }
 
