@@ -39,6 +39,8 @@ static char topic_dev_ctrl_sub[mqtt_cfg::TOPIC_MAX_LEN];
 // 所以不带 timestamp、sequence 这类会随时间变旧的字段。
 static char payload_status_online[128];
 static char payload_status_offline[128];
+// init() 里任何一项检查失败就置 false，此时 update() 不去连接，避免用被截断的 topic 连上 broker。
+static bool init_ok = false;
 
 // ==================== 内部函数 ====================
 static void set_state(MQTTState new_state)
@@ -88,69 +90,131 @@ static void schedule_retry()
     set_state(MQTTState::WAIT_RETRY);
 }
 
+// 连接成功发布上线消息、订阅控制topic
+// 以后要加新动作（订阅别的 topic、发其他消息），在这里往下加一段即可，update() 不用动。
+// 前提：current_state 已经是 CONNECTED，因为 mqtt_publish() 会检查它。
+static bool on_connected()
+{
+    // 1. 宣告上线（retain），覆盖掉遗嘱留下的 offline。
+    const mqtt_result_t publish_res = mqtt_publish(topic_gw_status, payload_status_online, true);
+    if (publish_res != MQTT_RESULT_OK)
+    {
+        Serial.printf("WARN: online message publish failed, result=%d\n", (int)publish_res);
+        return false;
+    }
+
+    // 2. 订阅控制请求。clean session 下重连后订阅不会保留，所以每次连上都要订。
+    if (!mqttClient.subscribe(topic_dev_ctrl_sub, 1))
+    {
+        Serial.printf("WARN: subscribe %s failed\n", topic_dev_ctrl_sub);
+        return false;
+    }
+
+    return true;
+}
+
+// 校验是否超限截断
+static bool format_ok(int n, size_t buf_size, const char* what)
+{
+    if (n < 0 || (size_t)n >= buf_size)
+    {
+        Serial.printf("ERROR: %s truncated or format error (n=%d, buf=%u)\n",
+                      what, n, (unsigned)buf_size);
+        return false;
+    }
+    return true;
+}
+
 // ==================== 对外函数 ====================
 void mqtt_manager_init(void)
 {
     Serial.println("MQTT Manager Init");
-    // 先生成 gateway_id，再拼两个 topic，最后调用 setServer、setKeepAlive、setSocketTimeout、setBufferSize。
+    init_ok = false;
+    // 用 &= 而不是 &&，这样每一项都会检查并打印，不会因为前面失败就漏掉后面的。
+    bool ok = true;
+
+    // 先生成 gateway_id，再拼 topic 和 status 消息，最后设置 MQTT Client。
     // 1. 获取 MAC 地址
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
     // 2. 生成 Gateway ID
-    snprintf(
+    ok &= format_ok(snprintf(
         gateway_id,
         sizeof(gateway_id),
         "esp32-%02x%02x%02x%02x%02x%02x",
         mac[0], mac[1], mac[2],
-        mac[3], mac[4], mac[5]);
+        mac[3], mac[4], mac[5]),
+        sizeof(gateway_id), "gateway_id");
 
     // 3. 生成 Topic
-    snprintf(
+    ok &= format_ok(snprintf(
         topic_gw_status,
         sizeof(topic_gw_status),
         mqtt_cfg::TOPIC_GW_STATUS_FMT,
         mqtt_cfg::TOPIC_PREFIX,
-        gateway_id);
+        gateway_id),
+        sizeof(topic_gw_status), "topic_gw_status");
 
-    snprintf(
+    ok &= format_ok(snprintf(
         topic_gw_data,
         sizeof(topic_gw_data),
         mqtt_cfg::TOPIC_GW_DATA_FMT,
         mqtt_cfg::TOPIC_PREFIX,
-        gateway_id);
+        gateway_id),
+        sizeof(topic_gw_data), "topic_gw_data");
 
-    snprintf(
+    ok &= format_ok(snprintf(
         topic_dev_ctrl_sub,
         sizeof(topic_dev_ctrl_sub),
         mqtt_cfg::TOPIC_DEV_CTRL_REQ_FMT,
         mqtt_cfg::TOPIC_PREFIX,
-        "+");
+        "+"),
+        sizeof(topic_dev_ctrl_sub), "topic_dev_ctrl_sub");
 
     // 4. 生成 status 消息（online / offline）
-    snprintf(
+    ok &= format_ok(snprintf(
         payload_status_online,
         sizeof(payload_status_online),
         "{\"ver\":%u,\"gatewayId\":\"%s\",\"type\":\"status\",\"value\":\"online\"}",
         (unsigned)mqtt_cfg::PROTOCOL_VERSION,
-        gateway_id);
+        gateway_id),
+        sizeof(payload_status_online), "payload_status_online");
 
-    snprintf(
+    ok &= format_ok(snprintf(
         payload_status_offline,
         sizeof(payload_status_offline),
         "{\"ver\":%u,\"gatewayId\":\"%s\",\"type\":\"status\",\"value\":\"offline\"}",
         (unsigned)mqtt_cfg::PROTOCOL_VERSION,
-        gateway_id);
+        gateway_id),
+        sizeof(payload_status_offline), "payload_status_offline");
 
     // 初始化 MQTT Client
     mqttClient.setServer(mqtt_cfg::BROKER_HOST, mqtt_cfg::BROKER_PORT);
     mqttClient.setKeepAlive(mqtt_cfg::KEEPALIVE_S);
     mqttClient.setSocketTimeout(mqtt_cfg::SOCKET_TIMEOUT_S);
-    mqttClient.setBufferSize(mqtt_cfg::BUFFER_SIZE);
+    // 内存不够时返回 false
+    if (!mqttClient.setBufferSize(mqtt_cfg::BUFFER_SIZE))
+    {
+        Serial.printf("ERROR: setBufferSize(%u) failed, out of memory\n",
+                      (unsigned)mqtt_cfg::BUFFER_SIZE);
+        ok = false;
+    }
     mqttClient.setCallback(mqtt_handler_on_message);
+
+    init_ok = ok;
+    if (!init_ok)
+    {
+        Serial.println("ERROR: MQTT init failed, MQTT is disabled");
+    }
 }
 
 void mqtt_manager_update(void)
 {
+    // init 没通过就不连接，原因已经在 init 里打印过。
+    if (!init_ok)
+    {
+        return;
+    }
     if (!wifi_manager_is_connected())
     {
         if (current_state != MQTTState::DISCONNECTED)
@@ -166,30 +230,18 @@ void mqtt_manager_update(void)
     {
     case MQTTState::DISCONNECTED:
     {
-        bool success = try_connect();
-        if (success)
+        if (!try_connect())
         {
-            set_state(MQTTState::CONNECTED);
-            // 发送上线消息。
-            mqtt_result_t publish_res = mqtt_publish(topic_gw_status, payload_status_online, true);
-            if(publish_res != MQTT_RESULT_OK) {
-                Serial.println("Warn! MQTT online message published failed");
-                schedule_retry();
-            }
-            else
-            {
-                bool is_subscribed = mqttClient.subscribe(topic_dev_ctrl_sub, 1);
-                if(is_subscribed)
-                {
-                    backoff_time = mqtt_cfg::RECONNECT_BACKOFF_INIT_MS;
-                    retry_wait_time = 0;
-                }
-                else {
-                    Serial.println("Warn! MQTT topic subscribe failed");
-                    schedule_retry();
-                }
-                
-            }
+            schedule_retry();
+            break;
+        }
+        // 先切状态：on_connected() 里的 mqtt_publish() 会检查 current_state == CONNECTED。
+        set_state(MQTTState::CONNECTED);
+        if (on_connected())
+        {
+            // 连上并且完成上线宣告和订阅，才算真正成功，这时才清零退避。
+            backoff_time = mqtt_cfg::RECONNECT_BACKOFF_INIT_MS;
+            retry_wait_time = 0;
         }
         else
         {
