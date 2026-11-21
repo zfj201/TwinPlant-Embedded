@@ -6,6 +6,7 @@
 #include <WiFi.h>
 #include "../network/wifi_manager.h"
 #include "../util/device.h"
+#include "../util/log.h"
 
 // ==================== 状态定义 ====================
 // 不设置连接中状态，因为PubSubClient 的 connect() 会一直阻塞到成功或超时，所以 CONNECTING 只存在于一次 update() 调用内部
@@ -29,6 +30,8 @@ static uint32_t backoff_time = mqtt_cfg::RECONNECT_BACKOFF_INIT_MS;
 // 重试需要等待的时间
 static uint32_t retry_wait_time = 0;
 
+static const char* TAG = "mqtt";
+
 // 网关 ID从 device 获取。
 static const char* gateway_id;
 // 完整 topic，init() 里用 mqtt_cfg 的格式串拼一次，之后一直用。
@@ -51,23 +54,19 @@ static void set_state(MQTTState new_state)
 
 static bool try_connect()
 {
-    Serial.println("MQTT connecting");
+    LOG_I(TAG, "connecting to %s:%u", mqtt_cfg::BROKER_HOST, (unsigned)mqtt_cfg::BROKER_PORT);
     const uint32_t t0 = millis();
     // 连接的同时设立遗嘱消息。
     bool success = mqttClient.connect(gateway_id,topic_gw_status,1,true,payload_status_offline);
     uint32_t take_time = millis() - t0;
     if (success)
     {
-        Serial.printf(
-            "MQTT Connected! Take %lu ms\n",
-            (unsigned long)take_time);
+        LOG_I(TAG, "connected, took %lu ms", (unsigned long)take_time);
     }
     else
     {
-        Serial.printf(
-            "MQTT Connect Failed! State: %d, Take %lu ms\n",
-            mqttClient.state(),
-            (unsigned long)take_time);
+        LOG_W(TAG, "connect failed, state=%d, took %lu ms", mqttClient.state(),
+              (unsigned long)take_time);
     }
     return success;
 }
@@ -79,9 +78,7 @@ static void schedule_retry()
 
     retry_wait_time = backoff_time + random(0, mqtt_cfg::RECONNECT_JITTER_MS + 1);
 
-    Serial.printf(
-        "Retry connect after %lu ms\n",
-        (unsigned long)retry_wait_time);
+    LOG_W(TAG, "retry in %lu ms", (unsigned long)retry_wait_time);
     backoff_time *= 2;
     if (backoff_time > mqtt_cfg::RECONNECT_BACKOFF_MAX_MS)
     {
@@ -99,16 +96,17 @@ static bool on_connected()
     const mqtt_result_t publish_res = mqtt_publish(topic_gw_status, payload_status_online, true);
     if (publish_res != MQTT_RESULT_OK)
     {
-        Serial.printf("WARN: online message publish failed, result=%d\n", (int)publish_res);
+        LOG_W(TAG, "online message publish failed, result=%d", (int)publish_res);
         return false;
     }
 
     // 2. 订阅控制请求。clean session 下重连后订阅不会保留，所以每次连上都要订。
     if (!mqttClient.subscribe(topic_dev_ctrl_sub, 1))
     {
-        Serial.printf("WARN: subscribe %s failed\n", topic_dev_ctrl_sub);
+        LOG_W(TAG, "subscribe %s failed", topic_dev_ctrl_sub);
         return false;
     }
+    LOG_I(TAG, "subscribed %s", topic_dev_ctrl_sub);
 
     return true;
 }
@@ -118,8 +116,7 @@ static bool format_ok(int n, size_t buf_size, const char* what)
 {
     if (n < 0 || (size_t)n >= buf_size)
     {
-        Serial.printf("ERROR: %s truncated or format error (n=%d, buf=%u)\n",
-                      what, n, (unsigned)buf_size);
+        LOG_E(TAG, "%s truncated or format error (n=%d, buf=%u)", what, n, (unsigned)buf_size);
         return false;
     }
     return true;
@@ -128,7 +125,6 @@ static bool format_ok(int n, size_t buf_size, const char* what)
 // ==================== 对外函数 ====================
 void mqtt_manager_init(void)
 {
-    Serial.println("MQTT Manager Init");
     init_ok = false;
     // 用 &= 而不是 &&，这样每一项都会检查并打印，不会因为前面失败就漏掉后面的。
     bool ok = true;
@@ -184,16 +180,19 @@ void mqtt_manager_init(void)
     // 内存不够时返回 false
     if (!mqttClient.setBufferSize(mqtt_cfg::BUFFER_SIZE))
     {
-        Serial.printf("ERROR: setBufferSize(%u) failed, out of memory\n",
-                      (unsigned)mqtt_cfg::BUFFER_SIZE);
+        LOG_E(TAG, "setBufferSize(%u) failed, out of memory", (unsigned)mqtt_cfg::BUFFER_SIZE);
         ok = false;
     }
     mqttClient.setCallback(mqtt_handler_on_message);
 
     init_ok = ok;
-    if (!init_ok)
+    if (init_ok)
     {
-        Serial.println("ERROR: MQTT init failed, MQTT is disabled");
+        LOG_I(TAG, "init ok, clientId=%s", gateway_id);
+    }
+    else
+    {
+        LOG_E(TAG, "init failed, MQTT is disabled");
     }
 }
 
@@ -249,7 +248,7 @@ void mqtt_manager_update(void)
         else
         {
             set_state(MQTTState::DISCONNECTED);
-            Serial.println("MQTT Disconnected");
+            LOG_W(TAG, "connection lost, state=%d", mqttClient.state());
         }
         break;
     }
