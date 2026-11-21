@@ -3,10 +3,12 @@
 #include "network/wifi_manager.h"
 #include "mqtt/mqtt_manager.h"
 #include "config/mqtt_config.h"
+#include "util/log.h"
+#include "util/device.h"
 
 uint32_t last_print_time = 0;
 static uint32_t last_publish_time = 0;
-static uint32_t sequence = 0;
+static const char* TAG = "main";
 
 static void publish_gateway_data(void)
 {
@@ -19,22 +21,22 @@ static void publish_gateway_data(void)
         (unsigned)mqtt_cfg::PROTOCOL_VERSION,
         mqtt_get_gateway_id(),
         (unsigned long)millis(),
-        (unsigned long)(++sequence),
+        (unsigned long)(device_next_sequence()),
         (unsigned long)(millis() / 1000),
         (unsigned long)ESP.getFreeHeap());
 
     // snprintf 返回的是完整字符串应有的长度，大于等于数组大小说明被截断了
     if (n < 0 || n >= (int)sizeof(payload)) {
-        Serial.println("ERROR: payload truncated");
+        LOG_E(TAG, "payload truncated, n=%d, buf=%u", n, (unsigned)sizeof(payload));
         return;
     }
 
     const mqtt_result_t result = mqtt_publish(mqtt_get_data_topic(), payload, false);
     if (result != MQTT_RESULT_OK) {
-        Serial.printf("WARN: publish failed, result=%d\n", (int)result);
+        LOG_W(TAG, "publish failed, result=%d", (int)result);
     }
     else {
-      Serial.println("Publish success.");
+      LOG_D(TAG, "published, %u bytes", (unsigned)strlen(payload));
     }
 }
 

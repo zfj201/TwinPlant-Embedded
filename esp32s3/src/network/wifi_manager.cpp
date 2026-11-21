@@ -3,6 +3,7 @@
 #include <WiFi.h>
 #include "network/wifi_manager.h"
 #include <Arduino.h>
+#include "../util/log.h"
 
 // ==================== 状态定义 ====================
 
@@ -21,6 +22,7 @@ static WiFiState current_state = WiFiState::IDLE;
 static uint32_t state_enter_time = 0;
 // 当前退避时间
 static uint32_t backoff_time = wifi_cfg::BACKOFF_INIT_MS;
+static const char* TAG = "wifi";
 
 // ==================== 内部函数 ====================
 // 切换状态
@@ -33,7 +35,7 @@ static void set_state(WiFiState new_state)
 // 发起一次连接
 static void start_connect()
 {
-  Serial.println("Connecting to WiFi...");
+  LOG_I(TAG, "connecting to \"%s\"", WIFI_SSID);
 
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   // 企业网 xxxx（WPA2-Enterprise，EAP-PEAP + MSCHAPv2）的写法。
@@ -48,7 +50,7 @@ static void start_connect()
 static void schedule_retry()
 {
   WiFi.disconnect();
-  Serial.println("Retry connect");
+  LOG_W(TAG, "retry in %lu ms", (unsigned long)backoff_time);
 
   set_state(WiFiState::WAIT_RETRY);
 }
@@ -85,12 +87,12 @@ void wifi_manager_update(void)
       set_state(WiFiState::CONNECTED);
       // 连接成功后重置退避时间
       backoff_time = wifi_cfg::BACKOFF_INIT_MS;
-      Serial.println("Connected to WiFi");
-      Serial.println(WiFi.localIP());
+      LOG_I(TAG, "connected, ip=%s rssi=%d", WiFi.localIP().toString().c_str(), (int)WiFi.RSSI());
     }
     // 问2：超时了吗？       → 进重试
     else if (now - state_enter_time > wifi_cfg::CONNECT_TIMEOUT_MS)
     {
+      LOG_W(TAG, "connect timeout, status=%d", (int)WiFi.status());
       schedule_retry();
     }
     // 顺序：先问连上，再问超时
@@ -100,7 +102,7 @@ void wifi_manager_update(void)
     // 问：还在线吗？        → 不在线就进重试
     if (WiFi.status() != WL_CONNECTED)
     {
-      Serial.println("WiFi disconnected.");
+      LOG_W(TAG, "link lost, status=%d", (int)WiFi.status());
       schedule_retry();
     }
     break;
