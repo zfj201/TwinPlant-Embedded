@@ -4,7 +4,14 @@ TwinPlant 智能设备数字孪生平台的嵌入式仓库，统一管理 STM32F
 
 TwinPlant 是一个"嵌入式实时控制 + 3D 数字孪生"平台，面向学习、展示和小型场景落地。一期以**智能温室实验舱**为场景：真实传感器数据经 MCU 汇聚上云，浏览器用 Three.js 实时展示舱体和设备状态，并能远程控制执行器、看到真实反馈。后续可扩展到实验室、仓库、机房和小型工业设备。
 
-Web 前端（Vue 3 + Three.js）不在本仓库。
+## 相关仓库
+
+| 仓库 | 内容 | 地址 |
+|---|---|---|
+| TwinPlant-Embedded（本仓库） | STM32F103、STM32F407、ESP32-S3 固件，协议文档 | https://github.com/zfj201/TwinPlant-Embedded |
+| TwinPlant-Fronted | Web 前端（Vue 3 + Three.js + MQTT.js + Pinia） | https://github.com/zfj201/TwinPlant-Fronted |
+
+两个仓库共用同一套应用层数据模型。修改 MQTT topic 或 payload 时，需要同步检查前端仓库。
 
 ## 系统架构
 
