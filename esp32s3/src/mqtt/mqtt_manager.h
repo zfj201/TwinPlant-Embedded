@@ -15,5 +15,4 @@ mqtt_result_t mqtt_publish(
     const char* payload,
     bool retained = false
 );
-const char* mqtt_get_data_topic(void);
 const char* mqtt_get_gateway_id(void);

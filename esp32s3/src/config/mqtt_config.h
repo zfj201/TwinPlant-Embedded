@@ -30,27 +30,7 @@ constexpr uint32_t RECONNECT_JITTER_MS = 500;
 // ---------- 发布 ----------
 constexpr uint32_t PUBLISH_INTERVAL_MS = 2000;
 
-// ---------- Topic ----------
-// 两层结构：
-//   gw  = 网关，即这块 ESP32 本身。gatewayId 运行时由 MAC 生成，如 esp32-a1b2c3d4e5f6。
-//   dev = 3D 场景里的设备。deviceId 是固定约定（tank-01、fan-01 ...），见 scene-contract.json。
-// 每个 topic 一条 snprintf 格式串：第一个 %s 填 TOPIC_PREFIX，第二个 %s 填 gatewayId 或 deviceId。
-// 加新 topic 就在这里加一行，拼接逻辑不用动。暂定，协议 V1 文档写好后以文档为准。
-//
-// 前缀是公共 broker 上的命名空间，要带自己项目独有的部分，避免和别人撞。
-constexpr const char* TOPIC_PREFIX = "twin-plant-zfj";
-
-constexpr const char* TOPIC_GW_STATUS_FMT = "%s/gw/%s/status";  // 网关在线/离线，retain，遗嘱用这个
-constexpr const char* TOPIC_GW_DATA_FMT = "%s/gw/%s/data";      // 网关自己的数据（运行时间、剩余堆）
-constexpr const char* TOPIC_DEV_DATA_FMT = "%s/dev/%s/data";    // 设备数据，接上 UART 后才有
-
-// 控制请求：前端发布，网关订阅。订阅时第二个 %s 填 "+"，匹配所有设备：
-//   订阅 twin-plant-zfj/dev/+/ctrl/req，收到的 topic 里那一段就是 deviceId。
-// 目前网关只打印，不执行。公共 broker 没有鉴权，接继电器之前必须先解决谁能发的问题。
-constexpr const char* TOPIC_DEV_CTRL_REQ_FMT = "%s/dev/%s/ctrl/req";
-
-// 拼接后的 topic 缓冲区大小（含结尾 \0）。
-constexpr uint8_t TOPIC_MAX_LEN = 96;
+// Topic 的定义和拼接在 mqtt/topic.cpp。
 
 // ---------- 协议 ----------
 constexpr uint8_t PROTOCOL_VERSION = 1;
