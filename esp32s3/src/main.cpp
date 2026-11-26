@@ -2,6 +2,7 @@
 #include <WiFi.h>
 #include "network/wifi_manager.h"
 #include "mqtt/mqtt_manager.h"
+#include "mqtt/topic.h"
 #include "config/mqtt_config.h"
 #include "util/log.h"
 #include "util/device.h"
@@ -11,14 +12,14 @@ uint32_t last_print_time = 0;
 static uint32_t last_publish_time = 0;
 static const char* TAG = "main";
 
-static void publish_gateway_data(void)
+static void publish_gateway_heart(void)
 {
     char payload[256];
     const int n = snprintf(
         payload, sizeof(payload),
-        "{\"ver\":%u,\"gatewayId\":\"%s\",\"type\":\"data\","
+        "{\"ver\":%u,\"gatewayId\":\"%s\",\"type\":\"heartbeat\","
         "\"timestamp\":%llu,\"sequence\":%lu,\"quality\":\"good\","
-        "\"value\":{\"uptime_s\":%lu,\"free_heap\":%lu}}",
+        "\"value\":{\"uptimeS\":%lu,\"freeHeap\":%lu}}",
         (unsigned)mqtt_cfg::PROTOCOL_VERSION,
         mqtt_get_gateway_id(),
         // Unix 毫秒(UTC)，未对时为 0。64 位，必须用 %llu。
@@ -33,7 +34,7 @@ static void publish_gateway_data(void)
         return;
     }
 
-    const mqtt_result_t result = mqtt_publish(mqtt_get_data_topic(), payload, false);
+    const mqtt_result_t result = mqtt_publish(topic_gw_heartbeat(), payload, false);
     if (result != MQTT_RESULT_OK) {
         LOG_W(TAG, "publish failed, result=%d", (int)result);
     }
@@ -63,7 +64,7 @@ void loop() {
   if (mqtt_manager_is_connected() &&
       millis() - last_publish_time >= mqtt_cfg::PUBLISH_INTERVAL_MS) {
       last_publish_time = millis();
-      publish_gateway_data();
+      publish_gateway_heart();
   }
 }
 

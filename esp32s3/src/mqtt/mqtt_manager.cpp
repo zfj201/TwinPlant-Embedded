@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include "mqtt_manager.h"
 #include "mqtt_handler.h"
+#include "topic.h"
 #include "../config/mqtt_config.h"
 #include <PubSubClient.h>
 #include <WiFi.h>
@@ -34,10 +35,6 @@ static const char* TAG = "mqtt";
 
 // 网关 ID从 device 获取。
 static const char* gateway_id;
-// 完整 topic，init() 里用 mqtt_cfg 的格式串拼一次，之后一直用。
-static char topic_gw_status[mqtt_cfg::TOPIC_MAX_LEN];
-static char topic_gw_data[mqtt_cfg::TOPIC_MAX_LEN];
-static char topic_dev_ctrl_sub[mqtt_cfg::TOPIC_MAX_LEN];
 // status 消息，init() 里拼一次。offline 是连接时交给 broker 的遗嘱，之后改不了，
 // 所以不带 timestamp、sequence 这类会随时间变旧的字段。
 static char payload_status_online[128];
@@ -57,7 +54,7 @@ static bool try_connect()
     LOG_I(TAG, "connecting to %s:%u", mqtt_cfg::BROKER_HOST, (unsigned)mqtt_cfg::BROKER_PORT);
     const uint32_t t0 = millis();
     // 连接的同时设立遗嘱消息。
-    bool success = mqttClient.connect(gateway_id,topic_gw_status,1,true,payload_status_offline);
+    bool success = mqttClient.connect(gateway_id, topic_gw_status(), 1, true, payload_status_offline);
     uint32_t take_time = millis() - t0;
     if (success)
     {
@@ -93,7 +90,7 @@ static void schedule_retry()
 static bool on_connected()
 {
     // 1. 宣告上线（retain），覆盖掉遗嘱留下的 offline。
-    const mqtt_result_t publish_res = mqtt_publish(topic_gw_status, payload_status_online, true);
+    const mqtt_result_t publish_res = mqtt_publish(topic_gw_status(), payload_status_online, true);
     if (publish_res != MQTT_RESULT_OK)
     {
         LOG_W(TAG, "online message publish failed, result=%d", (int)publish_res);
@@ -101,12 +98,12 @@ static bool on_connected()
     }
 
     // 2. 订阅控制请求。clean session 下重连后订阅不会保留，所以每次连上都要订。
-    if (!mqttClient.subscribe(topic_dev_ctrl_sub, 1))
+    if (!mqttClient.subscribe(topic_ctrl_req_sub(), 1))
     {
-        LOG_W(TAG, "subscribe %s failed", topic_dev_ctrl_sub);
+        LOG_W(TAG, "subscribe %s failed", topic_ctrl_req_sub());
         return false;
     }
-    LOG_I(TAG, "subscribed %s", topic_dev_ctrl_sub);
+    LOG_I(TAG, "subscribed %s", topic_ctrl_req_sub());
 
     return true;
 }
@@ -131,30 +128,8 @@ void mqtt_manager_init(void)
 
     gateway_id = device_gateway_id();
 
-    // 3. 生成 Topic
-    ok &= format_ok(snprintf(
-        topic_gw_status,
-        sizeof(topic_gw_status),
-        mqtt_cfg::TOPIC_GW_STATUS_FMT,
-        mqtt_cfg::TOPIC_PREFIX,
-        gateway_id),
-        sizeof(topic_gw_status), "topic_gw_status");
-
-    ok &= format_ok(snprintf(
-        topic_gw_data,
-        sizeof(topic_gw_data),
-        mqtt_cfg::TOPIC_GW_DATA_FMT,
-        mqtt_cfg::TOPIC_PREFIX,
-        gateway_id),
-        sizeof(topic_gw_data), "topic_gw_data");
-
-    ok &= format_ok(snprintf(
-        topic_dev_ctrl_sub,
-        sizeof(topic_dev_ctrl_sub),
-        mqtt_cfg::TOPIC_DEV_CTRL_REQ_FMT,
-        mqtt_cfg::TOPIC_PREFIX,
-        "+"),
-        sizeof(topic_dev_ctrl_sub), "topic_dev_ctrl_sub");
+    // 3. 生成网关 topic，截断时 topic_init() 自己打印是哪一个
+    ok &= topic_init(gateway_id);
 
     // 4. 生成 status 消息（online / offline）
     ok &= format_ok(snprintf(
@@ -320,10 +295,6 @@ mqtt_result_t mqtt_publish(const char* topic, const char* payload, bool retained
     return MQTT_RESULT_PUBLISH_FAILED;
 }
 
-const char* mqtt_get_data_topic()
-{
-    return topic_gw_data;
-}
 const char* mqtt_get_gateway_id()
 {
     return gateway_id;
