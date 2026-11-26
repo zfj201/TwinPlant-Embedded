@@ -21,6 +21,6 @@ const char* topic_ctrl_req_sub(void);  // 订阅用：.../dev/+/ctrl/req
 bool topic_dev_data(char* buf, size_t size, const char* device_id);
 bool topic_dev_ctrl_ack(char* buf, size_t size, const char* device_id);
 
-// 从收到的 ctrl/req topic 中取出 deviceId：".../dev/fan-01/ctrl/req" → "fan-01"。
-// 前缀或结尾不对、deviceId 为空或含 '/'、放不进 device_id，都返回 false。
-bool topic_parse_ctrl_req(const char* topic, char* device_id, size_t size);
+// 收到控制请求时用来校验：用 payload 里的 deviceId 拼出期望的 topic，
+// 和实际收到的 topic 比对，不一致就丢弃。不从 topic 里反解 deviceId。
+bool topic_dev_ctrl_req(char* buf, size_t size, const char* device_id);

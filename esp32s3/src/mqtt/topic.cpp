@@ -1,5 +1,4 @@
 #include <Arduino.h>
-#include <string.h>
 #include "topic.h"
 #include "../util/log.h"
 
@@ -20,10 +19,6 @@ static constexpr const char* GW_ERROR_FMT     = TOPIC_PREFIX "/gw/%s/error";
 static constexpr const char* DEV_DATA_FMT     = TOPIC_PREFIX "/dev/%s/data";
 static constexpr const char* DEV_CTRL_REQ_FMT = TOPIC_PREFIX "/dev/%s/ctrl/req";  // 前端发布，网关订阅
 static constexpr const char* DEV_CTRL_ACK_FMT = TOPIC_PREFIX "/dev/%s/ctrl/ack";
-
-// 解析 ctrl/req 用，必须和 DEV_CTRL_REQ_FMT 一致：topic = DEV_HEAD + deviceId + CTRL_REQ_TAIL
-static constexpr char DEV_HEAD[]      = TOPIC_PREFIX "/dev/";
-static constexpr char CTRL_REQ_TAIL[] = "/ctrl/req";
 
 // ==================== 内部变量 ====================
 static char gw_status[TOPIC_MAX_LEN];
@@ -71,32 +66,12 @@ bool topic_dev_data(char* buf, size_t size, const char* device_id)
     return format(buf, size, DEV_DATA_FMT, device_id);
 }
 
+bool topic_dev_ctrl_req(char* buf, size_t size, const char* device_id)
+{
+    return format(buf, size, DEV_CTRL_REQ_FMT, device_id);
+}
+
 bool topic_dev_ctrl_ack(char* buf, size_t size, const char* device_id)
 {
     return format(buf, size, DEV_CTRL_ACK_FMT, device_id);
-}
-
-bool topic_parse_ctrl_req(const char* topic, char* device_id, size_t size)
-{
-    constexpr size_t head_len = sizeof(DEV_HEAD) - 1;
-    constexpr size_t tail_len = sizeof(CTRL_REQ_TAIL) - 1;
-
-    const size_t len = strlen(topic);
-    if (len <= head_len + tail_len ||
-        strncmp(topic, DEV_HEAD, head_len) != 0 ||
-        strcmp(topic + len - tail_len, CTRL_REQ_TAIL) != 0)
-    {
-        return false;
-    }
-
-    const char* id = topic + head_len;
-    const size_t id_len = len - head_len - tail_len;
-    if (id_len >= size || memchr(id, '/', id_len) != nullptr)
-    {
-        return false;
-    }
-
-    memcpy(device_id, id, id_len);
-    device_id[id_len] = '\0';
-    return true;
 }
