@@ -5,6 +5,7 @@
 #include "config/mqtt_config.h"
 #include "util/log.h"
 #include "util/device.h"
+#include "util/time_sync.h"
 
 uint32_t last_print_time = 0;
 static uint32_t last_publish_time = 0;
@@ -16,11 +17,12 @@ static void publish_gateway_data(void)
     const int n = snprintf(
         payload, sizeof(payload),
         "{\"ver\":%u,\"gatewayId\":\"%s\",\"type\":\"data\","
-        "\"timestamp\":%lu,\"sequence\":%lu,\"quality\":\"good\","
+        "\"timestamp\":%llu,\"sequence\":%lu,\"quality\":\"good\","
         "\"value\":{\"uptime_s\":%lu,\"free_heap\":%lu}}",
         (unsigned)mqtt_cfg::PROTOCOL_VERSION,
         mqtt_get_gateway_id(),
-        (unsigned long)millis(),
+        // Unix 毫秒(UTC)，未对时为 0。64 位，必须用 %llu。
+        (unsigned long long)device_now_ms(),
         (unsigned long)(device_next_sequence()),
         (unsigned long)(millis() / 1000),
         (unsigned long)ESP.getFreeHeap());
@@ -52,6 +54,10 @@ void loop() {
   // Serial.println("Hello, World!");
   // delay(1000);
   wifi_manager_update();
+  if (wifi_manager_is_connected()) {
+    time_sync_begin();   // 内部有 started 标志，每圈调用也只会执行一次
+  }
+  time_sync_update();
   mqtt_manager_update();
   
   if (mqtt_manager_is_connected() &&
