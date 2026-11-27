@@ -2,7 +2,7 @@
 #include <WiFi.h>
 #include "network/wifi_manager.h"
 #include "mqtt/mqtt_manager.h"
-#include "mqtt/topic.h"
+#include "mqtt/message_fmt.h"
 #include "config/mqtt_config.h"
 #include "util/log.h"
 #include "util/device.h"
@@ -14,32 +14,26 @@ static const char* TAG = "main";
 
 static void publish_gateway_heart(void)
 {
-    char payload[256];
-    const int n = snprintf(
-        payload, sizeof(payload),
-        "{\"ver\":%u,\"gatewayId\":\"%s\",\"type\":\"heartbeat\","
-        "\"timestamp\":%llu,\"sequence\":%lu,\"quality\":\"good\","
-        "\"value\":{\"uptimeS\":%lu,\"freeHeap\":%lu}}",
-        (unsigned)mqtt_cfg::PROTOCOL_VERSION,
-        mqtt_get_gateway_id(),
-        // Unix 毫秒(UTC)，未对时为 0。64 位，必须用 %llu。
-        (unsigned long long)device_now_ms(),
-        (unsigned long)(device_next_sequence(DEVICE_GATEWAY)),
-        (unsigned long)(millis() / 1000),
-        (unsigned long)ESP.getFreeHeap());
+    // 没接 UART 前，下游节点都是 mock
+    const HeartbeatValue v{
+        millis() / 1000,
+        ESP.getFreeHeap(),
+        WiFi.RSSI(),
+        NodeState::MOCK,
+        NodeState::MOCK,
+    };
 
-    // snprintf 返回的是完整字符串应有的长度，大于等于数组大小说明被截断了
-    if (n < 0 || n >= (int)sizeof(payload)) {
-        LOG_E(TAG, "payload truncated, n=%d, buf=%u", n, (unsigned)sizeof(payload));
-        return;
+    MqttMsg m;
+    if (!msg_heartbeat(&m, v)) {
+        return;   // 原因 message_fmt 已经打印
     }
 
-    const mqtt_result_t result = mqtt_publish(topic_gw_heartbeat(), payload, false);
+    const mqtt_result_t result = mqtt_publish(m.topic, m.payload, false);
     if (result != MQTT_RESULT_OK) {
         LOG_W(TAG, "publish failed, result=%d", (int)result);
     }
     else {
-      LOG_D(TAG, "published, %u bytes", (unsigned)strlen(payload));
+      LOG_D(TAG, "published, %u bytes", (unsigned)strlen(m.payload));
     }
 }
 

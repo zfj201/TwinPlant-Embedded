@@ -37,11 +37,11 @@ enum {
  * 数字编号用于 UART 帧；MQTT 里用字符串 ID（tank-01 等），由 ESP32 负责转换。 */
 typedef uint8_t tp_dev_t;
 enum {
-    TP_DEV_TANK = 1,
-    TP_DEV_FAN,
-    TP_DEV_HV,
-    TP_DEV_INCUBATOR,
-    TP_DEV_TILT,
+    TP_DEV_TANK = 1,    //水位器
+    TP_DEV_FAN,      //风扇
+    TP_DEV_HV,      //高压
+    TP_DEV_INCUBATOR,       //触摸传感器
+    TP_DEV_TILT,        //倾斜传感器IMU
     TP_DEV_COUNT = TP_DEV_TILT      /* 有效编号为 1..TP_DEV_COUNT */
 };
 
@@ -57,5 +57,22 @@ static inline tp_err_t tp_fan_rpm_check(int32_t rpm)
                        rpm % TP_FAN_RPM_STEP == 0;
     return ok ? TP_OK : TP_ERR_OUT_OF_RANGE;
 }
+
+static inline const char* err_text(tp_err_t code)
+{
+    switch (code)
+    {
+    case TP_OK:                 return "ok";
+    case TP_ERR_BAD_JSON:       return "bad json";
+    case TP_ERR_BAD_VERSION:    return "bad version";
+    case TP_ERR_UNKNOWN_DEVICE: return "unknown device";
+    case TP_ERR_UNKNOWN_KEY:    return "unknown key";
+    case TP_ERR_OUT_OF_RANGE:   return "out of range";
+    case TP_ERR_INVALID_STATE:  return "invalid state";
+    case TP_ERR_DEVICE_OFFLINE: return "device offline";
+    default:                    return "error";
+    }
+}
+
 
 #endif /* TP_MODEL_H */

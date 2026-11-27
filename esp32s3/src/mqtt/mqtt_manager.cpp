@@ -2,6 +2,7 @@
 #include "mqtt_manager.h"
 #include "mqtt_handler.h"
 #include "topic.h"
+#include "message_fmt.h"
 #include "../config/mqtt_config.h"
 #include <PubSubClient.h>
 #include <WiFi.h>
@@ -35,10 +36,10 @@ static const char* TAG = "mqtt";
 
 // 网关 ID从 device 获取。
 static const char* gateway_id;
-// status 消息，init() 里拼一次。offline 是连接时交给 broker 的遗嘱，之后改不了，
-// 所以不带 timestamp、sequence 这类会随时间变旧的字段。
-static char payload_status_online[128];
-static char payload_status_offline[128];
+// status 消息，init() 里用 msg_status 生成一次。offline 是遗嘱，每次重连 connect() 都要再读，
+// 所以必须是静态变量，不能放栈上。
+static MqttMsg status_online;
+static MqttMsg status_offline;
 // init() 里任何一项检查失败就置 false，此时 update() 不去连接，避免用被截断的 topic 连上 broker。
 static bool init_ok = false;
 
@@ -54,7 +55,7 @@ static bool try_connect()
     LOG_I(TAG, "connecting to %s:%u", mqtt_cfg::BROKER_HOST, (unsigned)mqtt_cfg::BROKER_PORT);
     const uint32_t t0 = millis();
     // 连接的同时设立遗嘱消息。
-    bool success = mqttClient.connect(gateway_id, topic_gw_status(), 1, true, payload_status_offline);
+    bool success = mqttClient.connect(gateway_id, status_offline.topic, 1, true, status_offline.payload);
     uint32_t take_time = millis() - t0;
     if (success)
     {
@@ -90,7 +91,7 @@ static void schedule_retry()
 static bool on_connected()
 {
     // 1. 宣告上线（retain），覆盖掉遗嘱留下的 offline。
-    const mqtt_result_t publish_res = mqtt_publish(topic_gw_status(), payload_status_online, true);
+    const mqtt_result_t publish_res = mqtt_publish(status_online.topic, status_online.payload, true);
     if (publish_res != MQTT_RESULT_OK)
     {
         LOG_W(TAG, "online message publish failed, result=%d", (int)publish_res);
@@ -108,17 +109,6 @@ static bool on_connected()
     return true;
 }
 
-// 校验是否超限截断
-static bool format_ok(int n, size_t buf_size, const char* what)
-{
-    if (n < 0 || (size_t)n >= buf_size)
-    {
-        LOG_E(TAG, "%s truncated or format error (n=%d, buf=%u)", what, n, (unsigned)buf_size);
-        return false;
-    }
-    return true;
-}
-
 // ==================== 对外函数 ====================
 void mqtt_manager_init(void)
 {
@@ -131,22 +121,9 @@ void mqtt_manager_init(void)
     // 3. 生成网关 topic，截断时 topic_init() 自己打印是哪一个
     ok &= topic_init(gateway_id);
 
-    // 4. 生成 status 消息（online / offline）
-    ok &= format_ok(snprintf(
-        payload_status_online,
-        sizeof(payload_status_online),
-        "{\"ver\":%u,\"gatewayId\":\"%s\",\"type\":\"status\",\"value\":\"online\"}",
-        (unsigned)mqtt_cfg::PROTOCOL_VERSION,
-        gateway_id),
-        sizeof(payload_status_online), "payload_status_online");
-
-    ok &= format_ok(snprintf(
-        payload_status_offline,
-        sizeof(payload_status_offline),
-        "{\"ver\":%u,\"gatewayId\":\"%s\",\"type\":\"status\",\"value\":\"offline\"}",
-        (unsigned)mqtt_cfg::PROTOCOL_VERSION,
-        gateway_id),
-        sizeof(payload_status_offline), "payload_status_offline");
+    // 4. 生成 status 消息（online / offline）。依赖 topic_init()，必须在它之后；
+    ok &= msg_status(&status_online, true);
+    ok &= msg_status(&status_offline, false);
 
     // 初始化 MQTT Client
     mqttClient.setServer(mqtt_cfg::BROKER_HOST, mqtt_cfg::BROKER_PORT);
