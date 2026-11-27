@@ -5,7 +5,8 @@
 // 网关 ID，由芯片 MAC 生成，如 "esp32-a1b2c3d4e5f6"（18 个字符加结尾符）。同时用作 MQTT 的 clientId。
 static char gateway_id[24];
 static bool is_generate = false;
-static uint32_t sequence = 0;
+// sequences数组，+1 是因为包含网关sequences，下标 0 是网关，1..TP_DEV_COUNT 是设备。
+static uint32_t sequences[TP_DEV_COUNT + 1];
 
 const char *device_gateway_id(void)
 {
@@ -36,11 +37,17 @@ const char *device_gateway_id(void)
     }
     
 }
-uint32_t device_sequence(void)
+
+uint32_t device_next_sequence(tp_dev_t dev)
 {
-    return sequence;
+    if (dev > TP_DEV_COUNT)
+    {
+        return 0;
+    }
+    return ++sequences[dev];
 }
-uint32_t device_next_sequence(void)
+
+uint32_t device_sequence(tp_dev_t dev)
 {
-    return ++sequence;
+    return dev > TP_DEV_COUNT ? 0 : sequences[dev];
 }

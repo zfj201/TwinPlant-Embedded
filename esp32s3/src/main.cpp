@@ -24,7 +24,7 @@ static void publish_gateway_heart(void)
         mqtt_get_gateway_id(),
         // Unix 毫秒(UTC)，未对时为 0。64 位，必须用 %llu。
         (unsigned long long)device_now_ms(),
-        (unsigned long)(device_next_sequence()),
+        (unsigned long)(device_next_sequence(DEVICE_GATEWAY)),
         (unsigned long)(millis() / 1000),
         (unsigned long)ESP.getFreeHeap());
 
